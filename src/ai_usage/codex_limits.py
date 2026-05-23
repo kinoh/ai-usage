@@ -52,6 +52,7 @@ class StatusInputState:
 
     typed_status: bool = False
     submitted_status: bool = False
+    typed_at: float | None = None
 
 
 def strip_terminal_sequences(text: str) -> str:
@@ -119,16 +120,21 @@ def update_status_input_state(
     cleaned_output: str,
     state: StatusInputState,
     output_idle_seconds: float,
+    elapsed_seconds: float,
 ) -> tuple[StatusInputState, bytes | None]:
     """Return the next input action after observing the rendered Codex screen."""
 
     if not state.typed_status:
         if output_idle_seconds < 0.8 or not PROMPT_PATTERN.search(cleaned_output):
             return state, None
-        return StatusInputState(typed_status=True, submitted_status=False), STATUS_COMMAND.encode()
+        bracketed_paste = b"\x1b[200~" + STATUS_COMMAND.encode() + b"\x1b[201~"
+        return StatusInputState(typed_status=True, submitted_status=False, typed_at=elapsed_seconds), bracketed_paste
 
     if not state.submitted_status and STATUS_PROMPT_PATTERN.search(cleaned_output):
-        return StatusInputState(typed_status=True, submitted_status=True), b"\r"
+        return StatusInputState(typed_status=True, submitted_status=True, typed_at=state.typed_at), b"\r"
+
+    if not state.submitted_status and state.typed_at is not None and elapsed_seconds - state.typed_at >= 1.5:
+        return StatusInputState(), b"\x15"
 
     return state, None
 
@@ -167,7 +173,13 @@ def collect_status_output(codex_command: str, timeout: float) -> str:
             text = output.decode(errors="replace")
             cleaned = strip_terminal_sequences(text)
             output_idle_seconds = time.monotonic() - last_read
-            input_state, input_action = update_status_input_state(cleaned, input_state, output_idle_seconds)
+            elapsed_seconds = time.monotonic() - start
+            input_state, input_action = update_status_input_state(
+                cleaned,
+                input_state,
+                output_idle_seconds,
+                elapsed_seconds,
+            )
             if input_action:
                 os.write(fd, input_action)
 
