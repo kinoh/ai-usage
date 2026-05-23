@@ -27,6 +27,9 @@ ANSI_PATTERN = re.compile(
 LIMIT_PATTERN = re.compile(r"^(?P<name>.+?limit):\s*(?P<value>.*?)(?:\s{2,}|\s*$)", re.IGNORECASE)
 RESET_PATTERN = re.compile(r"\(resets (?P<reset>[^)]+)\)", re.IGNORECASE)
 PERCENT_PATTERN = re.compile(r"(?P<percent>\d+)%\s+left", re.IGNORECASE)
+PROMPT_PATTERN = re.compile(r"›")
+STATUS_PROMPT_PATTERN = re.compile(r"›\s*/status")
+STATUS_COMMAND = "/status"
 
 
 @dataclass(frozen=True)
@@ -41,6 +44,14 @@ class LimitInfo:
 
 class CodexLimitError(RuntimeError):
     """Raised when Codex limit information cannot be collected."""
+
+
+@dataclass(frozen=True)
+class StatusInputState:
+    """Tracks the staged input needed to submit /status reliably."""
+
+    typed_status: bool = False
+    submitted_status: bool = False
 
 
 def strip_terminal_sequences(text: str) -> str:
@@ -104,6 +115,24 @@ def parse_limits(status_text: str) -> list[LimitInfo]:
     return limits
 
 
+def update_status_input_state(
+    cleaned_output: str,
+    state: StatusInputState,
+    output_idle_seconds: float,
+) -> tuple[StatusInputState, bytes | None]:
+    """Return the next input action after observing the rendered Codex screen."""
+
+    if not state.typed_status:
+        if output_idle_seconds < 0.8 or not PROMPT_PATTERN.search(cleaned_output):
+            return state, None
+        return StatusInputState(typed_status=True, submitted_status=False), STATUS_COMMAND.encode()
+
+    if not state.submitted_status and STATUS_PROMPT_PATTERN.search(cleaned_output):
+        return StatusInputState(typed_status=True, submitted_status=True), b"\r"
+
+    return state, None
+
+
 def collect_status_output(codex_command: str, timeout: float) -> str:
     """Start Codex, send /status, and return captured terminal output."""
 
@@ -122,7 +151,7 @@ def collect_status_output(codex_command: str, timeout: float) -> str:
     fcntl.ioctl(fd, termios_tiocswinsz(), struct.pack("HHHH", 32, 120, 0, 0))
     output = bytearray()
     start = time.monotonic()
-    sent_status = False
+    input_state = StatusInputState()
     last_read = time.monotonic()
 
     try:
@@ -137,11 +166,12 @@ def collect_status_output(codex_command: str, timeout: float) -> str:
 
             text = output.decode(errors="replace")
             cleaned = strip_terminal_sequences(text)
-            if not sent_status and "›" in cleaned:
-                os.write(fd, b"/status\r")
-                sent_status = True
+            output_idle_seconds = time.monotonic() - last_read
+            input_state, input_action = update_status_input_state(cleaned, input_state, output_idle_seconds)
+            if input_action:
+                os.write(fd, input_action)
 
-            if sent_status and "Weekly limit:" in cleaned and time.monotonic() - last_read > 0.8:
+            if input_state.submitted_status and "Weekly limit:" in cleaned and time.monotonic() - last_read > 0.8:
                 return text
 
         raise CodexLimitError("Timed out while waiting for Codex /status limit output.")
