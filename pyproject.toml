@@ -10,5 +10,5 @@ requires-python = ">=3.10"
 dependencies = []
 
 [project.scripts]
-codex-limit = "ai_usage.codex_limits:main"
-codex-limit-exporter = "ai_usage.metrics_exporter:main"
+ai-usage = "ai_usage.codex_limits:main"
+ai-usage-exporter = "ai_usage.metrics_exporter:main"

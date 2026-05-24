@@ -1,17 +1,16 @@
 # ai-usage
 
-`codex-limit` starts the Codex CLI, sends `/status`, and extracts the limit rows.
-`codex-limit-exporter` keeps collecting the same data and exposes only the latest
+`ai-usage` starts the Codex CLI, sends `/status`, and extracts the limit rows.
+`ai-usage-exporter` keeps collecting the same data and exposes only the latest
 `percent_left` values as Prometheus metrics.
 
 ## Usage
 
 ```sh
-python -m pip install -e .
-codex-limit
-codex-limit --json
-codex-limit --codex /path/to/codex --timeout 30
-CODEX_HOME=/codex-home codex-limit-exporter --account work --host 127.0.0.1 --port 9108 --interval 60 --retry-interval 5
+uv run ai-usage
+uv run ai-usage --json
+uv run ai-usage --codex /path/to/codex --timeout 30
+CODEX_HOME=/codex-home uv run ai-usage-exporter --account work --host 127.0.0.1 --port 9108 --interval 60 --retry-interval 5
 ```
 
 The command requires a working Codex login because the limit data is read from Codex itself.
