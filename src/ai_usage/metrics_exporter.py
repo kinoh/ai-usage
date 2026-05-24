@@ -120,15 +120,17 @@ def run_collector(
 ) -> None:
     """Collect Codex limits until stopped."""
 
-    while not stop_event.is_set():
+    while not stop_event.wait(interval):
         try:
             cache.replace(collect_samples(account, codex_command, timeout))
-            wait_seconds = interval
         except CodexLimitError as error:
             print(f"codex-limit-exporter: {error}", file=sys.stderr)
-            wait_seconds = retry_interval
-
-        stop_event.wait(wait_seconds)
+            while not stop_event.wait(retry_interval):
+                try:
+                    cache.replace(collect_samples(account, codex_command, timeout))
+                    break
+                except CodexLimitError as retry_error:
+                    print(f"codex-limit-exporter: {retry_error}", file=sys.stderr)
 
 
 class MetricsHandler(http.server.BaseHTTPRequestHandler):
@@ -187,6 +189,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         return 1
 
     cache = LimitMetricsCache()
+    try:
+        cache.replace(collect_samples(args.account, args.codex, args.timeout))
+    except CodexLimitError as error:
+        print(f"codex-limit-exporter: {error}", file=sys.stderr)
+        return 1
+
     stop_event = threading.Event()
     collector = threading.Thread(
         target=run_collector,
