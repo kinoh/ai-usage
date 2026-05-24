@@ -21,6 +21,7 @@ METRIC_NAME = "codex_usage_limit_percent_left"
 class MetricSample:
     """A Prometheus gauge sample."""
 
+    account: str
     scope: str
     window: str
     value: int
@@ -64,10 +65,11 @@ def window_from_limit_name(name: str) -> str:
     return slug_label(normalized)
 
 
-def samples_from_limits(limits: Sequence[LimitInfo]) -> list[MetricSample]:
+def samples_from_limits(account: str, limits: Sequence[LimitInfo]) -> list[MetricSample]:
     """Build gauge samples from parsed Codex limits."""
 
     samples: list[MetricSample] = []
+    account_label = slug_label(account)
     scope = "default"
 
     for limit in limits:
@@ -77,6 +79,7 @@ def samples_from_limits(limits: Sequence[LimitInfo]) -> list[MetricSample]:
 
         samples.append(
             MetricSample(
+                account=account_label,
                 scope=scope,
                 window=window_from_limit_name(limit.name),
                 value=limit.percent_left,
@@ -95,19 +98,21 @@ def render_prometheus_metrics(samples: Sequence[MetricSample]) -> bytes:
     ]
     for sample in samples:
         lines.append(
-            f'{METRIC_NAME}{{scope="{sample.scope}",window="{sample.window}"}} {sample.value}'
+            f'{METRIC_NAME}{{account="{sample.account}",scope="{sample.scope}",window="{sample.window}"}} '
+            f"{sample.value}"
         )
     return ("\n".join(lines) + "\n").encode()
 
 
-def collect_samples(codex_command: str, timeout: float) -> list[MetricSample]:
+def collect_samples(account: str, codex_command: str, timeout: float) -> list[MetricSample]:
     status_output = collect_status_output(codex_command, timeout)
-    return samples_from_limits(parse_limits(status_output))
+    return samples_from_limits(account, parse_limits(status_output))
 
 
 def run_collector(
     cache: LimitMetricsCache,
     stop_event: threading.Event,
+    account: str,
     codex_command: str,
     timeout: float,
     interval: float,
@@ -117,7 +122,7 @@ def run_collector(
 
     while not stop_event.is_set():
         try:
-            cache.replace(collect_samples(codex_command, timeout))
+            cache.replace(collect_samples(account, codex_command, timeout))
             wait_seconds = interval
         except CodexLimitError as error:
             print(f"codex-limit-exporter: {error}", file=sys.stderr)
@@ -162,6 +167,7 @@ def serve_metrics(host: str, port: int, cache: LimitMetricsCache) -> http.server
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Expose Codex usage limits as Prometheus metrics.")
+    parser.add_argument("--account", required=True, help="Account label to attach to every metric sample.")
     parser.add_argument("--host", default="127.0.0.1", help="Address to bind.")
     parser.add_argument("--port", type=int, default=9108, help="Port to bind.")
     parser.add_argument("--interval", type=float, default=60.0, help="Seconds between Codex collections.")
@@ -184,7 +190,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     stop_event = threading.Event()
     collector = threading.Thread(
         target=run_collector,
-        args=(cache, stop_event, args.codex, args.timeout, args.interval, args.retry_interval),
+        args=(cache, stop_event, args.account, args.codex, args.timeout, args.interval, args.retry_interval),
         daemon=True,
     )
     collector.start()
