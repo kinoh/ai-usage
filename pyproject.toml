@@ -11,3 +11,4 @@ dependencies = []
 
 [project.scripts]
 codex-limit = "ai_usage.codex_limits:main"
+codex-limit-exporter = "ai_usage.metrics_exporter:main"
