@@ -15,6 +15,28 @@ CODEX_HOME=/codex-home uv run ai-usage-exporter --account work --host 127.0.0.1 
 
 The command requires a working Codex login because the limit data is read from Codex itself.
 
+## Container
+
+```sh
+docker run --rm \
+  -p 9108:9108 \
+  -v codex-home-work:/codex-home \
+  ghcr.io/kinoh/ai-usage:latest \
+  exporter \
+  --account work
+```
+
+Use the same image for every account and mount a different volume at `/codex-home`.
+
+Run Codex login once per account volume:
+
+```sh
+docker run --rm -it \
+  -v codex-home-work:/codex-home \
+  ghcr.io/kinoh/ai-usage:latest \
+  codex login
+```
+
 ## Metrics
 
 ```prometheus
