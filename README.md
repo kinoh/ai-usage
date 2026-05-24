@@ -17,6 +17,8 @@ The command requires a working Codex login because the limit data is read from C
 
 ## Container
 
+Images are published by GitHub Actions to `ghcr.io/kinoh/ai-usage`.
+
 ```sh
 docker run --rm \
   -p 9108:9108 \
